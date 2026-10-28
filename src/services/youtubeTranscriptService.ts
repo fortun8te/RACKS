@@ -433,7 +433,7 @@ except Exception as e:
   /**
    * Fetch via Apify (last resort when all else fails).
    * Requires APIFY_TOKEN env var.
-   * Costs credits (~$0.10-0.50 per video) but guaranteed to work.
+   * Costs ~$0.005 per delivered transcript (failures not charged) but guaranteed to work.
    * Uses Apify's YouTube transcript actor.
    */
   private async _fetchViaApify(videoUrl: string): Promise<VideoTranscript | null> {
@@ -450,12 +450,14 @@ except Exception as e:
       log.info(`Apify: starting actor for ${videoId}`);
 
       // Start Apify actor run (YouTube transcript scraper)
-      const startRes = await fetch('https://api.apify.com/v2/acts/jbvjbw~youtube-transcript-scraper/runs?token=' + apifyToken, {
+      // jbvjbw/youtube-transcript-scraper was removed from Apify (404).
+      const startRes = await fetch('https://api.apify.com/v2/acts/shephouse~youtube-transcript-scraper-bulk/runs?token=' + apifyToken, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          videoUrl: videoUrl,
-          language: 'en'
+          startUrls: [{ url: videoUrl }],
+          languages: ['en'],
+          maxTranscripts: 1
         }),
         signal: AbortSignal.timeout(30_000)
       });
@@ -518,11 +520,16 @@ except Exception as e:
       }
 
       // Parse Apify response into TranscriptSegment[]
-      // Apify returns array of { text, startTime, endTime, ... }
-      const segments: TranscriptSegment[] = transcript.map((item: any) => ({
-        text: (item.text || item.content || '').replace(/\[.*?\]/g, '').trim(),
-        start: (item.startTime || item.start || 0) / 1000, // convert ms to seconds
-        duration: ((item.endTime || item.end || 0) - (item.startTime || item.start || 0)) / 1000
+      // One row per video: { status, segments: [{ start, dur, text }] } (seconds)
+      const row = transcript[0];
+      if (row?.status !== 'OK') {
+        log.warn(`Apify: ${videoId} returned ${row?.status ?? 'no status'}`);
+        return null;
+      }
+      const segments: TranscriptSegment[] = (row.segments || []).map((seg: any) => ({
+        text: (seg.text || '').replace(/\[.*?\]/g, '').trim(),
+        start: seg.start || 0,
+        duration: seg.dur || 0
       })).filter((s: TranscriptSegment) => s.text.length > 0);
 
       if (segments.length === 0) return null;
@@ -530,7 +537,7 @@ except Exception as e:
       const rawText = segments.map(s => s.text).join(' ');
       const lastSeg = segments[segments.length - 1];
 
-      log.info(`Apify: ${videoId} OK (${segments.length} segs, ${rawText.length} chars, cost ~$0.25)`);
+      log.info(`Apify: ${videoId} OK (${segments.length} segs, ${rawText.length} chars)`);
 
       return {
         videoId,
