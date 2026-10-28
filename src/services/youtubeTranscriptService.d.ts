@@ -58,7 +58,7 @@ export declare class YouTubeTranscriptService {
     /**
      * Fetch via Apify (last resort when all else fails).
      * Requires APIFY_TOKEN env var.
-     * Costs credits (~$0.10-0.50 per video) but guaranteed to work.
+     * Costs ~$0.005 per delivered transcript (failures not charged) but guaranteed to work.
      * Uses Apify's YouTube transcript actor.
      */
     private _fetchViaApify;
